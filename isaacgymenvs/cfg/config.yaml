@@ -5,7 +5,7 @@ task_name: ${task.name}
 experiment: ''
 
 # if set to positive integer, overrides the default number of environments
-num_envs: 512
+num_envs: 100
 
 # seed - set to -1 to choose random seed
 seed: 42
@@ -33,10 +33,10 @@ num_subscenes: 4 # Splits the simulation into N physics scenes and runs each one
 
 # RLGames Arguments
 # test - if set, run policy in inference mode (requires setting checkpoint to load)
-test: True
+test: False
 # used to set checkpoint path
-# checkpoint: ''
-checkpoint: '/home/linjiw/Downloads/newisaac/isaacgym-jackal_original/isaacgymenvs/outputs/2024-02-02/15-25-12/runs/Jackal/nn/Jackal.pth'
+checkpoint: ''
+# checkpoint: '/home/linjiw/Downloads/newisaac/isaacgym-jackal_original/isaacgymenvs/outputs/2024-02-02/15-25-12/runs/Jackal/nn/Jackal.pth'
 # checkpoint: '/home/linjiw/Downloads/newisaac/isaacgym-jackal/isaacgymenvs/outputs/2024-01-25/17-24-34/runs/Jackal/nn/last_Jackal_ep_4000_rew_26.76752.pth'
 # checkpoint: '/home/linjiw/Downloads/newisaac/isaacgym-jackal/isaacgymenvs/outputs/2024-01-25/17-24-34/runs/Jackal/nn/last_Jackal_ep_4500_rew_26.9162.pth'
 # checkpoint: '/home/linjiw/Downloads/newisaac/isaacgym-jackal/isaacgymenvs/runs/Jackal/nn/last_Jackal_ep_850_rew_19.660906.pth'

@@ -2,8 +2,8 @@ params:
   seed: ${...seed}
 
   algo:
-    name: a2c_continuous
-    # name: PAIR_Agent
+    # name: a2c_continuous
+    name: PAIR_Agent
 
   model:
     name: continuous_a2c_logstd
@@ -65,7 +65,7 @@ params:
     entropy_coef: 0.0
     truncate_grads: False
     e_clip: 0.2
-    horizon_length: 32 # 32
+    horizon_length: 128 # 32
     minibatch_size: 2048 # 2048
     mini_epochs: 4
     critic_coef: 2

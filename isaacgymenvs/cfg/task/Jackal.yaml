@@ -4,21 +4,21 @@ name: Jackal
 physics_engine: 'physx'
 
 env:
-  numEnvs: 10 #${resolve_default:4096,${...num_envs}}
+  numEnvs: 100 #${resolve_default:4096,${...num_envs}}
   numObservations: 724
   numActions: 2
   envSpacing: 5.  # [m]
   enableDebugVis: False
   enableCameraSensors: True
-  numCylinders: 200
-  numMaxCylinders: 200
+  numCylinders: 300
+  numMaxCylinders: 300
   terrain: # BARN environments
     world_path: "urdf/jackal/worlds"
     staticFriction: 0.5
     dynamicFriction: 0.5  # it depends on the lower frictions amoung two contacted surfaces
     restitution: 0  # non-elastic
     mapFolder: "worlds"
-    pair_id: ''
+    pair_id: '_eval'
 
   baseInitState:
     pos: [2.25, 2.25, 0] # x,y,z [m]

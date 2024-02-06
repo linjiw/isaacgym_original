@@ -113,7 +113,7 @@ class Runner:
         _override_sigma(agent.antagonist, args)
         num_epoch = 100000
         # for i in range(num_epoch):
-        agent.env.env.reset_cylinder_to_map(map_folder='worlds_train', if_random=False, if_order=0)
+        # agent.env.env.reset_cylinder_to_map(map_folder='worlds_train', if_random=False, if_order=0)
         agent.protagonist.train()
         # agent.antagonist.train()
 

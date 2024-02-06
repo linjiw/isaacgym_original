@@ -945,11 +945,11 @@ class A2CBase(BaseAlgorithm):
 
             self.current_rewards = self.current_rewards * not_dones.unsqueeze(1)
             self.current_lengths = self.current_lengths * not_dones
-            if n > 0 and (n + 1) % change_env_freq == 0:
-                map_order += 1
-                self.vec_env.env.reset_cylinder_to_map(map_folder='worlds_train', if_random=False, if_order = map_order)
-                print(f"reset cylinder to map done {(n + 1) // change_env_freq}/ {self.horizon_length / change_env_freq}")
-                self.obs = self.env_reset()
+            # if n > 0 and (n + 1) % change_env_freq == 0:
+            #     map_order += 1
+            #     self.vec_env.env.reset_cylinder_to_map(map_folder='worlds_train', if_random=False, if_order = map_order)
+            #     print(f"reset cylinder to map done {(n + 1) // change_env_freq}/ {self.horizon_length / change_env_freq}")
+            #     self.obs = self.env_reset()
  
 
         if total_dones != 0:
