@@ -1,0 +1,179 @@
+task:
+  name: Jackal
+  physics_engine: physx
+  env:
+    numEnvs: 10
+    numObservations: 724
+    numActions: 2
+    envSpacing: 5.0
+    enableDebugVis: false
+    enableCameraSensors: true
+    numCylinders: 200
+    numMaxCylinders: 200
+    terrain:
+      world_path: urdf/jackal/worlds
+      staticFriction: 0.5
+      dynamicFriction: 0.5
+      restitution: 0
+      mapFolder: worlds
+      pair_id: ''
+    baseInitState:
+      pos:
+      - 2.25
+      - 2.25
+      - 0
+      rot: 90
+      goal:
+      - 2.25
+      - 10.25
+      - 0
+    control:
+      stiffness: 1000.0
+      damping: 200.0
+      actionScale: 1
+      decimation: 20
+      multiplier:
+      - 2.8
+      - 3.2
+    camera:
+      width: 240
+      height: 1
+      horizontal_fov: 90
+    urdfAsset:
+      file: urdf/jackal/urdf/jackal.urdf
+    learn:
+      episodeLength_s: 40
+      success_reward: 20.0
+      collision_reward: -1.0
+      progress_reward: 1.0
+    viewer:
+      refEnv: 0
+      pos:
+      - -10
+      - -10
+      - 10
+      lookat:
+      - 1.0
+      - 1
+      - 9
+  sim:
+    dt: 0.005
+    substeps: 1
+    up_axis: z
+    use_gpu_pipeline: ${eq:${...pipeline},"gpu"}
+    gravity:
+    - 0.0
+    - 0.0
+    - -9.81
+    physx:
+      num_threads: ${....num_threads}
+      solver_type: ${....solver_type}
+      use_gpu: ${contains:"cuda",${....sim_device}}
+      num_position_iterations: 4
+      num_velocity_iterations: 1
+      contact_offset: 0.002
+      rest_offset: 0.0
+      bounce_threshold_velocity: 0.2
+      max_depenetration_velocity: 100.0
+      default_buffer_size_multiplier: 5.0
+      max_gpu_contact_pairs: 8388608
+      num_subscenes: ${....num_subscenes}
+      contact_collection: 1
+train:
+  params:
+    seed: ${...seed}
+    algo:
+      name: a2c_continuous
+    model:
+      name: continuous_a2c_logstd
+    network:
+      name: actor_critic
+      separate: true
+      space:
+        continuous:
+          mu_activation: None
+          sigma_activation: None
+          mu_init:
+            name: default
+          sigma_init:
+            name: const_initializer
+            val: 0.0
+          fixed_sigma: true
+      mlp:
+        units:
+        - 512
+        - 512
+        activation: elu
+        d2rl: false
+        initializer:
+          name: default
+        regularizer:
+          name: None
+    load_checkpoint: ${if:${...checkpoint},True,False}
+    load_path: ${...checkpoint}
+    config:
+      name: ${resolve_default:Jackal,${....experiment}}
+      full_experiment_name: ${.name}
+      env_name: rlgpu
+      multi_gpu: ${....multi_gpu}
+      ppo: true
+      mixed_precision: true
+      normalize_input: true
+      normalize_value: true
+      value_bootstrap: true
+      num_actors: ${....task.env.numEnvs}
+      reward_shaper:
+        scale_value: 0.01
+      normalize_advantage: true
+      gamma: 0.99
+      tau: 0.95
+      learning_rate: 0.0003
+      lr_schedule: adaptive
+      schedule_type: legacy
+      kl_threshold: 0.008
+      score_to_win: 20000
+      max_epochs: 10000
+      save_best_after: 0
+      save_frequency: 100
+      grad_norm: 1.0
+      entropy_coef: 0.0
+      truncate_grads: false
+      e_clip: 0.2
+      horizon_length: 32
+      minibatch_size: 2048
+      mini_epochs: 4
+      critic_coef: 2
+      clip_value: true
+      seq_len: 4
+      bounds_loss_coef: 0.0001
+      change_env_freq: 64
+    player:
+      games_num: 5000
+      max_steps: 32
+task_name: ${task.name}
+experiment: ''
+num_envs: 512
+seed: 42
+torch_deterministic: false
+max_iterations: ''
+physics_engine: physx
+pipeline: gpu
+sim_device: cuda:0
+rl_device: cuda:0
+graphics_device_id: 0
+num_threads: 4
+solver_type: 1
+num_subscenes: 4
+test: true
+checkpoint: /home/linjiw/Downloads/newisaac/isaacgym-jackal_original/isaacgymenvs/outputs/2024-02-02/15-25-12/runs/Jackal/nn/Jackal.pth
+multi_gpu: false
+wandb_activate: true
+wandb_group: ''
+wandb_name: ${train.params.config.name}
+wandb_entity: ''
+wandb_project: isaacgymenvs
+capture_video: false
+capture_video_freq: 1464
+capture_video_len: 100
+force_render: true
+headless: false
