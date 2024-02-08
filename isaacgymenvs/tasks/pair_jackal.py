@@ -319,7 +319,53 @@ class Jakcal(VecTask):
     def reset_jackal(self):
         self.reset_idx(torch.arange(self.num_envs, device=self.device))
 
+    def reset_idx(self, env_ids):
+        # print(f"self.jackal_rigid_body_idx {self.jackal_rigid_body_idx}")
+        # print(f"self.jackal_actor_idx {self.jackal_actor_idx}")
+        actor_ids = self.jackal_actor_idx[env_ids]
+        # print(f"actor_ids {actor_ids}")
+        self.root_states[actor_ids] = self.root_states_start[actor_ids]
+        # print(f"self.root_states[actor_ids] {self.root_states[actor_ids]}")
+        self.root_states[actor_ids][:, :2] += torch.rand(self.root_states[actor_ids][:, :2].shape).to(self.device) * 0.5
+        rot = torch.rand(len(actor_ids)).to(self.device) * torch.pi * 2 - torch.pi
+        self.root_states[actor_ids][:, 5:7] = torch.stack([torch.cos(rot), torch.sin(rot)], dim=1)
+        actor_ids = actor_ids.to(torch.int32)
+        # self.reset_cylinder(env_ids)
 
+
+        
+        #env_ids_int32 = env_ids.to(torch.int32)
+        # print(f"actor_ids {actor_ids}")
+        # print(f"len(actor_ids) {len(actor_ids)}")
+
+        self.gym.set_actor_root_state_tensor_indexed(
+            self.sim,
+            gymtorch.unwrap_tensor(self.root_states),
+            gymtorch.unwrap_tensor(actor_ids), len(actor_ids)
+        )
+        # import pdb; pdb.set_trace()
+        #self.gym.set_dof_state_tensor_indexed(
+        #    self.sim,
+        #    gymtorch.unwrap_tensor(self.dof_state),
+        #    gymtorch.unwrap_tensor(actor_ids), len(actor_ids)
+        #)
+        self.progress_buf[env_ids] = 0
+        #self.reset_buf[env_ids] = 0
+        self.goal[env_ids] = deepcopy(self.goal_origin[env_ids])
+        # self.goal[env_ids] += torch.rand(self.goal[env_ids].shape).to(self.device) * 0.5
+        self.last_goal_dist[env_ids] = torch.linalg.norm(self.root_states[self.jackal_actor_idx][env_ids, :2] - self.goal[env_ids, :2], dim=-1)
+        # print(f"self.last_goal_dist {self.last_goal_dist}")
+        # print(f"self.last_goal_dist[env_ids] {self.last_goal_dist[env_ids]}")
+        # print(f"self.root_states[self.jackal_actor_idx][env_ids, 1] {self.root_states[self.jackal_actor_idx][env_ids, 1]}")
+        # print(f"self.jackal_actor_idx {self.jackal_actor_idx}")
+        # print(f"goal shape {self.goal.shape}")
+        # print(f"self.goal[env_ids, 1] {self.goal[env_ids, 1]}")
+        # self.last_goal_dist[env_ids] = torch.absolute(self.root_states[self.jackal_actor_idx][env_ids, 1] - self.goal[env_ids, 1])
+        # if an actor is reset, force to update the camera and contact force tensor
+        self.gym.refresh_dof_state_tensor(self.sim)
+        self.gym.refresh_actor_root_state_tensor(self.sim)
+        self.gym.refresh_net_contact_force_tensor(self.sim)
+        self.gym.step_graphics(self.sim)
 
 
     # BEGIN: 6d8f7a9d3f4c
@@ -566,7 +612,7 @@ class Jakcal(VecTask):
 
         # setup cylinders for BARN worlds
         asset_options = gymapi.AssetOptions()
-        asset_options.fix_base_link = True
+        asset_options.fix_base_link = False
         asset_options.disable_gravity = False
         asset_options.default_dof_drive_mode = gymapi.DOF_MODE_NONE
         asset_options.density = 1000.0
@@ -878,8 +924,52 @@ class Jakcal(VecTask):
         self.last_goal_dist = current_goal_dist
         # print(f"self.last_goal_dist = curr {self.last_goal_dist}")
     
+
+    def close(self):
+        pass
+    def pre_physics_step(self, actions):
+        # actions: (num_envs, num_actions)
+        # action is vx and w
+        # mapping from (vx, w) to w_R and w_L
+        # w_R = (w*b + 2*v_x) / (2r); w_L = (-w*b + 2*v_x) / (2r)
+        # b = 0.37559 (robot width); r = 0.098 (wheel radius)
+        # How the actions are translated and applied
+        self.collided_buf = torch.linalg.norm(self.contact_forces[self.jackal_rigid_body_idx][:, :3], dim=-1) > 0.01
+        self.actions = actions.clone().to(self.device) * self.cfg["env"]["control"]["actionScale"]
+        # print(f"self.jackal_rigid_body_idx {self.jackal_rigid_body_idx}")
+
+        # Since the angular velocity does not match the actual, we need a multiplier
+        # this range varies, we randomize it in a range
+        multiplier = np.random.uniform(*self.cfg["env"]["control"]["multiplier"])
+        actions[:, 0] = actions[:, 0] * 2; actions[:, 1] = actions[:, 1] * 3.14 * multiplier
+        for i in range(self.decimation):  # repeat this action for self.decimation frames
+            wR = (2 * actions[:, 0] + actions[:, 1] * 0.37559) / (2 * 0.098)
+            wL = (2 * actions[:, 0] - actions[:, 1] * 0.37559) / (2 * 0.098)
+            vel_targets = gymtorch.unwrap_tensor(torch.stack([wR, wL], axis=1).repeat(1, 2))
+            self.gym.set_dof_velocity_target_tensor(self.sim, vel_targets)
+
+            self.gym.simulate(self.sim)
+            # if self.device == 'cpu':
+            self.gym.refresh_dof_state_tensor(self.sim)
+            self.gym.refresh_actor_root_state_tensor(self.sim)
+            self.gym.refresh_net_contact_force_tensor(self.sim)
+
+            # check collision at every sim step rather than env step
+            # print(f"len(self.contact_forces) {len(self.contact_forces)}")
+            # # print(f"len(self.jackal_rigid_body_idx) {len(self.jackal_rigid_body_idx)}")
+            # print(f"self.jackal_rigid_body_idx {self.jackal_rigid_body_idx}")
+            # print(f"max_index in self.jackal_rigid_body_idx {max(self.jackal_rigid_body_idx)}")
+            collided_buf = torch.linalg.norm(self.contact_forces[self.jackal_rigid_body_idx][:, :3], dim=-1) > 0.01
+            collided_buf = torch.logical_or(collided_buf, self.root_states[self.jackal_actor_idx][:, 2] > 0.15)
+            self.collided_buf = torch.logical_or(collided_buf, self.collided_buf)
+            self.collided_buf = torch.logical_and(self.collided_buf, self.progress_buf > 1)
+
+        self.gym.fetch_results(self.sim, True)
+        self.gym.step_graphics(self.sim)
+        self.gym.render_all_camera_sensors(self.sim) 
+ 
     def reset_all_cylinder(self):
-                # print(f"self.num_cylinders {self.num_cylinders}")
+        # print(f"self.num_cylinders {self.num_cylinders}")
         env_ids = self.reset_buf.nonzero(as_tuple=False).flatten()
         # print(f"env_ids {env_ids}")
 
@@ -1106,180 +1196,8 @@ class Jakcal(VecTask):
         self.gym.step_graphics(self.sim)
 
 
-    def reset_idx(self, env_ids):
-        # print(f"self.jackal_rigid_body_idx {self.jackal_rigid_body_idx}")
-        # print(f"self.jackal_actor_idx {self.jackal_actor_idx}")
-        actor_ids = self.jackal_actor_idx[env_ids]
-        # print(f"actor_ids {actor_ids}")
-        self.root_states[actor_ids] = self.root_states_start[actor_ids]
-        # print(f"self.root_states[actor_ids] {self.root_states[actor_ids]}")
-        self.root_states[actor_ids][:, :2] += torch.rand(self.root_states[actor_ids][:, :2].shape).to(self.device) * 0.5
-        rot = torch.rand(len(actor_ids)).to(self.device) * torch.pi * 2 - torch.pi
-        self.root_states[actor_ids][:, 5:7] = torch.stack([torch.cos(rot), torch.sin(rot)], dim=1)
-        actor_ids = actor_ids.to(torch.int32)
-        # self.reset_cylinder(env_ids)
 
-
-        
-        #env_ids_int32 = env_ids.to(torch.int32)
-        # print(f"actor_ids {actor_ids}")
-        # print(f"len(actor_ids) {len(actor_ids)}")
-
-        self.gym.set_actor_root_state_tensor_indexed(
-            self.sim,
-            gymtorch.unwrap_tensor(self.root_states),
-            gymtorch.unwrap_tensor(actor_ids), len(actor_ids)
-        )
-        # import pdb; pdb.set_trace()
-        #self.gym.set_dof_state_tensor_indexed(
-        #    self.sim,
-        #    gymtorch.unwrap_tensor(self.dof_state),
-        #    gymtorch.unwrap_tensor(actor_ids), len(actor_ids)
-        #)
-        self.progress_buf[env_ids] = 0
-        #self.reset_buf[env_ids] = 0
-        self.goal[env_ids] = deepcopy(self.goal_origin[env_ids])
-        # self.goal[env_ids] += torch.rand(self.goal[env_ids].shape).to(self.device) * 0.5
-        self.last_goal_dist[env_ids] = torch.linalg.norm(self.root_states[self.jackal_actor_idx][env_ids, :2] - self.goal[env_ids, :2], dim=-1)
-        # print(f"self.last_goal_dist {self.last_goal_dist}")
-        # print(f"self.last_goal_dist[env_ids] {self.last_goal_dist[env_ids]}")
-        # print(f"self.root_states[self.jackal_actor_idx][env_ids, 1] {self.root_states[self.jackal_actor_idx][env_ids, 1]}")
-        # print(f"self.jackal_actor_idx {self.jackal_actor_idx}")
-        # print(f"goal shape {self.goal.shape}")
-        # print(f"self.goal[env_ids, 1] {self.goal[env_ids, 1]}")
-        # self.last_goal_dist[env_ids] = torch.absolute(self.root_states[self.jackal_actor_idx][env_ids, 1] - self.goal[env_ids, 1])
-        # if an actor is reset, force to update the camera and contact force tensor
-        self.gym.refresh_dof_state_tensor(self.sim)
-        self.gym.refresh_actor_root_state_tensor(self.sim)
-        self.gym.refresh_net_contact_force_tensor(self.sim)
-        self.gym.step_graphics(self.sim)
-    
-    def close(self):
-        pass
-    def pre_physics_step(self, actions):
-        # actions: (num_envs, num_actions)
-        # action is vx and w
-        # mapping from (vx, w) to w_R and w_L
-        # w_R = (w*b + 2*v_x) / (2r); w_L = (-w*b + 2*v_x) / (2r)
-        # b = 0.37559 (robot width); r = 0.098 (wheel radius)
-        # How the actions are translated and applied
-        self.collided_buf = torch.linalg.norm(self.contact_forces[self.jackal_rigid_body_idx][:, :3], dim=-1) > 0.01
-        self.actions = actions.clone().to(self.device) * self.cfg["env"]["control"]["actionScale"]
-        # print(f"self.jackal_rigid_body_idx {self.jackal_rigid_body_idx}")
-
-        # Since the angular velocity does not match the actual, we need a multiplier
-        # this range varies, we randomize it in a range
-        multiplier = np.random.uniform(*self.cfg["env"]["control"]["multiplier"])
-        actions[:, 0] = actions[:, 0] * 2; actions[:, 1] = actions[:, 1] * 3.14 * multiplier
-        for i in range(self.decimation):  # repeat this action for self.decimation frames
-            wR = (2 * actions[:, 0] + actions[:, 1] * 0.37559) / (2 * 0.098)
-            wL = (2 * actions[:, 0] - actions[:, 1] * 0.37559) / (2 * 0.098)
-            vel_targets = gymtorch.unwrap_tensor(torch.stack([wR, wL], axis=1).repeat(1, 2))
-            self.gym.set_dof_velocity_target_tensor(self.sim, vel_targets)
-
-            self.gym.simulate(self.sim)
-            # if self.device == 'cpu':
-            self.gym.refresh_dof_state_tensor(self.sim)
-            self.gym.refresh_actor_root_state_tensor(self.sim)
-            self.gym.refresh_net_contact_force_tensor(self.sim)
-
-            # check collision at every sim step rather than env step
-            # print(f"len(self.contact_forces) {len(self.contact_forces)}")
-            # # print(f"len(self.jackal_rigid_body_idx) {len(self.jackal_rigid_body_idx)}")
-            # print(f"self.jackal_rigid_body_idx {self.jackal_rigid_body_idx}")
-            # print(f"max_index in self.jackal_rigid_body_idx {max(self.jackal_rigid_body_idx)}")
-            collided_buf = torch.linalg.norm(self.contact_forces[self.jackal_rigid_body_idx][:, :3], dim=-1) > 0.01
-            collided_buf = torch.logical_or(collided_buf, self.root_states[self.jackal_actor_idx][:, 2] > 0.15)
-            self.collided_buf = torch.logical_or(collided_buf, self.collided_buf)
-            self.collided_buf = torch.logical_and(self.collided_buf, self.progress_buf > 1)
-
-        self.gym.fetch_results(self.sim, True)
-        self.gym.step_graphics(self.sim)
-        self.gym.render_all_camera_sensors(self.sim) 
-    # def pre_physics_step(self, actions):
-    #     # actions: (num_envs, num_actions)
-    #     # action is vx and w
-    #     # mapping from (vx, w) to w_R and w_L
-    #     # w_R = (w*b + 2*v_x) / (2r); w_L = (-w*b + 2*v_x) / (2r)
-    #     # b = 0.37559 (robot width); r = 0.098 (wheel radius)
-    #     # How the actions are translated and applied
-    #     # print(f"len(self.contact_forces) {len(self.contact_forces)}")
-    #     # print(f"self.contact_forces[self.jackal_rigid_body_idx][:, :3] {self.contact_forces[self.jackal_rigid_body_idx][:, :3]}")
-    #     # print(f"torch.linalg.norm(self.contact_forces): {torch.linalg.norm(self.contact_forces[self.jackal_rigid_body_idx][:, :3], dim=-1)} ")
-    #     contact_force_threshold = 0.01 # 0.01
-    #     height_threshold = 0.15
-    #     if_contact_force_z = True
-    #     if if_contact_force_z
-    #         contact_dim = 3
-    #     else:
-    #         contact_dim = 2
-    #     # self.collided_buf = torch.linalg.norm(self.contact_forces[self.jackal_rigid_body_idx][:, :contact_dim], dim=-1) > contact_force_threshold
-    #     self.collided_buf = torch.linalg.norm(self.contact_forces[self.jackal_rigid_body_idx][:, :3], dim=-1) > 0.01
-
-    #     # print(f"self.collided_buf_after_contact_force {self.collided_buf}")
-    #     self.actions = actions.clone().to(self.device) * self.cfg["env"]["control"]["actionScale"]
-    #     # Since the angular velocity does not match the actual, we need a multiplier
-    #     # this range varies, we randomize it in a range
-    #     # print(f"self.jackal_rigid_body_idx {self.jackal_rigid_body_idx}")
-    #     # print(f"self.contact_forces.shape {self.contact_forces.shape}")
-    #     # Calculating the norm for each row (dimension 0)
-    #     # norms = torch.norm(self.contact_forces, dim=1)
-
-    #     # # Finding indices where the norm is greater than 0.01
-    #     # indices = torch.nonzero(norms > 0.01).squeeze()
-    #     # print(f"indices {indices}")
-    #     # print(f" torch.linalg.norm(self.contact_forces): {self.contact_forces[self.jackal_rigid_body_idx][:, :contact_dim]} ")
-    #     # print(f" torch.linalg.norm(self.contact_forces+ 1): {self.contact_forces[self.jackal_rigid_body_idx + 1][:, :contact_dim]} ")
-    #     # print(f" torch.linalg.norm(self.contact_forces+ 2): {self.contact_forces[self.jackal_rigid_body_idx + 2][:, :contact_dim]} ")
-    #     # print(f" torch.linalg.norm(self.contact_forces+ 3): {self.contact_forces[self.jackal_rigid_body_idx + 3][:, :contact_dim]} ")
-    #     # print(f" torch.linalg.norm(self.contact_forces+ 4): {self.contact_forces[self.jackal_rigid_body_idx + 4][:, :contact_dim]} ")
-
-    #     # print(f"self.jackal_actor_idx {self.jackal_actor_idx}")
-    #     # print(f"self.root_states.shape {self.root_states.shape}")
-
-    #     # print(f" self.root_states[self.jackal_actor_idx][:, :2]: {self.root_states[self.jackal_actor_idx][:, :2]} ")
-
-    #     multiplier = np.random.uniform(*self.cfg["env"]["control"]["multiplier"])
-    #     actions[:, 0] = actions[:, 0] * 2; actions[:, 1] = actions[:, 1] * 3.14 * multiplier
-    #     # print(f"actions {actions}")
-    #     for i in range(self.decimation):  # repeat this action for self.decimation frames
-    #         wR = (2 * actions[:, 0] + actions[:, 1] * 0.37559) / (2 * 0.098)
-    #         wL = (2 * actions[:, 0] - actions[:, 1] * 0.37559) / (2 * 0.098)
-    #         vel_targets = gymtorch.unwrap_tensor(torch.stack([wR, wL], axis=1).repeat(1, 2))
-    #         self.gym.set_dof_velocity_target_tensor(self.sim, vel_targets)
-
-    #         self.gym.simulate(self.sim)
-    #         # if self.device == 'cpu':
-    #         self.gym.refresh_dof_state_tensor(self.sim)
-    #         self.gym.refresh_actor_root_state_tensor(self.sim)
-    #         self.gym.refresh_net_contact_force_tensor(self.sim)
-
-    #         # check collision at every sim step rather than env step
-    #         # print(f"{i}: self.contact_forces[self.jackal_rigid_body_idx][:, :3] {self.contact_forces[self.jackal_rigid_body_idx][:, :3]}")
-            
-    #         # print(f"{i}: torch.linalg.norm(self.contact_forces): {torch.linalg.norm(self.contact_forces[self.jackal_rigid_body_idx][:, :contact_dim], dim=-1)} ")
-    #         # print(f"{i}: self.collided_buf_after_progress {self.collided_buf}")
-    #         print(f"{i}: counting collision")
-    #         print_gpu_usage()
-    #         # collided_buf = torch.linalg.norm(self.contact_forces[self.jackal_rigid_body_idx][:, :contact_dim], dim=-1) > contact_force_threshold
-    #         print
-    #         collided_buf = torch.linalg.norm(self.contact_forces[self.jackal_rigid_body_idx][:, :3], dim=-1) > 0.01
-    #         collided_buf = torch.logical_or(collided_buf, self.root_states[self.jackal_actor_idx][:, 2] > 0.15)
-
-    #         # print(f"{i}: self.collided_buf_after_contact_force {collided_buf}")
-    #         # collided_buf = torch.logical_or(collided_buf, self.root_states[self.jackal_actor_idx][:, 2] > height_threshold) # checke jackal height
-    #         # print(f"{i}: self.collided_buf_after_height {collided_buf}")
-    #         self.collided_buf = torch.logical_or(collided_buf, self.collided_buf)
-    #         # print(f"{i}: self.collided_buf_after_combined {self.collided_buf}")
-
-    #         self.collided_buf = torch.logical_and(self.collided_buf, self.progress_buf > 1)
-    #         # print(f"{i}: self.collided_buf_after_progress {self.collided_buf}")
-
-
-    #     self.gym.fetch_results(self.sim, True)
-    #     self.gym.step_graphics(self.sim)
-    #     self.gym.render_all_camera_sensors(self.sim)
-        
+           
     def reset_cylinder_no_random(self, env_ids):
         pass
     def reset_map_lst(self, env_ids):
@@ -1326,7 +1244,8 @@ class Jakcal(VecTask):
         # self.re
         self.reuse_map = True
         self.reset_cylinder(self.envs_id) # reset all the cylinders, if not, the cylinder will automatically fall down
-
+        # for i in range(self.num_envs):
+        #     self.reset_cylinder(env_ids[i].unsqueeze(0), grid_id=i)
         self.compute_observation()
     def close(self):
         """

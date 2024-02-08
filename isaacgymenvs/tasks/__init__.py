@@ -48,7 +48,8 @@ from .allegro_hand import AllegroHand
 from .trifinger import Trifinger
 # from .jackal import Jakcal, RslRLJackal
 # from .simple_jackal import Jakcal, RslRLJackal
-from .pair_jackal import Jakcal, RslRLJackal
+# from .pair_jackal import Jakcal, RslRLJackal
+from .combine_jackal import Jakcal, RslRLJackal
 # from .old_jackal import Jakcal, RslRLJackal
 # Mappings from strings to environments
 isaacgym_task_map = {

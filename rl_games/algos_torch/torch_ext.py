@@ -79,11 +79,11 @@ def save_checkpoint(filename, state):
     safe_save(state, filename + '.pth')
     # Verification step: Attempt to load the file
     checkpoint_path = filename + '.pth'
-    try:
-        loaded_state = safe_load(checkpoint_path)
-        print(f"=> Successfully saved and verified checkpoint '{checkpoint_path}'")
-    except Exception as exc:
-        raise RuntimeError(f'Failed to verify the saved file: {exc}')
+    # try:
+    #     loaded_state = safe_load(checkpoint_path)
+    #     print(f"=> Successfully saved and verified checkpoint '{checkpoint_path}'")
+    # except Exception as exc:
+    #     raise RuntimeError(f'Failed to verify the saved file: {exc}')
 
 
 

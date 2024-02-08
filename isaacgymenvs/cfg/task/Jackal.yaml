@@ -18,7 +18,7 @@ env:
     dynamicFriction: 0.5  # it depends on the lower frictions amoung two contacted surfaces
     restitution: 0  # non-elastic
     mapFolder: "worlds"
-    pair_id: '_eval'
+    pair_id: ''
 
   baseInitState:
     pos: [2.25, 2.25, 0] # x,y,z [m]
